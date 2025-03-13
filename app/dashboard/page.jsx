@@ -50,12 +50,21 @@ function DashboardContent() {
 
   // Fetch data when component mounts
   useEffect(() => {
+    // Only redirect if we're sure the authentication is fully loaded and user is not authenticated
+    let authCheckTimeout;
+    
     if (!firebaseLoading && !currentUser) {
-      // Navigate to login if no current user is found
-      router.push("/login?redirect=/dashboard");
+      // Add a short delay to ensure Firebase has time to restore auth state from local storage
+      authCheckTimeout = setTimeout(() => {
+        // Double-check the auth state before redirecting
+        if (!currentUser) {
+          console.log('User not authenticated, redirecting from dashboard to login');
+          router.push("/login?redirect=/dashboard");
+        }
+      }, 1000); // Wait for 1 second before redirecting
       return;
     }
-
+    
     async function fetchData() {
       setLoading(true);
       try {
@@ -63,73 +72,117 @@ function DashboardContent() {
         const userMatches = await getUserMatches(currentUserId);
         
         // Get user services and services associated with matches
-        const [userServices, matchServices] = await Promise.all([
+        const [userOwnedServices, matchServices] = await Promise.all([
           getServicesByUserId(currentUserId),
           Promise.all((userMatches || []).map(match => 
             match.serviceId ? getServiceById(match.serviceId) : null
           ))
         ]);
 
-        // Combine and deduplicate services
-        const allServices = [...(userServices || [])];
+        // Store user's own services separately for clarity
+        const ownedServices = [...(userOwnedServices || [])];
+        
+        // Combine all services for displaying in match context 
+        const allServices = [...ownedServices];
         matchServices.forEach(service => {
           if (service && !allServices.some(s => s.id === service.id)) {
             allServices.push(service);
           }
         });
-
-        setServices(allServices);
-
-        // Process timestamps for consistency
-        const processedMatches = (userMatches || []).map((match) => {
-          // Add a normalized timestamp for reliable sorting
-          match.normalizedTimestamp = normalizeTimestamp(
-            match.lastUpdated ||
-              match.updatedAt ||
-              match.created ||
-              match.createdAt
+        
+        // Log services for debugging
+        console.log('Services count breakdown:', {
+          ownedByUser: ownedServices.length,
+          fromMatches: matchServices.filter(Boolean).length,
+          total: allServices.length
+        });
+        
+        // Log services where userId doesn't match currentUserId for debugging
+        const nonOwnedServices = allServices.filter(s => s.userId !== currentUserId);
+        if (nonOwnedServices.length > 0) {
+          console.log('Found services not owned by current user:', 
+            nonOwnedServices.map(s => ({ id: s.id, title: s.title, userId: s.userId }))
           );
-
-          return match;
+        }
+        
+        // Log deleted services for debugging
+        const deletedServices = allServices.filter(s => s.status === "deleted");
+        if (deletedServices.length > 0) {
+          console.log('Found deleted services:', 
+            deletedServices.map(s => ({ id: s.id, title: s.title, userId: s.userId, status: s.status }))
+          );
+        }
+        
+        // Build a list of all unique user IDs that need to be fetched
+        const userIdsToFetch = new Set();
+        userMatches.forEach(match => {
+          // Add other user (requester or provider) to the list
+          if (match.requesterId && match.requesterId !== currentUserId) {
+            userIdsToFetch.add(match.requesterId);
+          }
+          if (match.providerId && match.providerId !== currentUserId) {
+            userIdsToFetch.add(match.providerId);
+          }
         });
-
-        setMatches(processedMatches || []);
-
-        // Fetch user data for all matches
-        const userIds = new Set();
-        processedMatches?.forEach((match) => {
-          if (match.requesterId !== currentUserId)
-            userIds.add(match.requesterId);
-          if (match.providerId !== currentUserId) userIds.add(match.providerId);
+        
+        console.log('Fetching user data for:', [...userIdsToFetch]);
+        
+        // Fetch all user data in parallel
+        if (userIdsToFetch.size > 0) {
+          const userPromises = [...userIdsToFetch].map(userId => getUserById(userId));
+          const userResults = await Promise.all(userPromises);
+          
+          // Build a new Map to update the cache
+          const newCache = new Map(userCache);
+          
+          // Add each user to the cache
+          [...userIdsToFetch].forEach((userId, index) => {
+            if (userResults[index]) {
+              newCache.set(userId, userResults[index]);
+            }
+          });
+          
+          // Update the cache state
+          setUserCache(newCache);
+        }
+        
+        // For matches, add normalized timestamps for sorting
+        const matchesWithTimestamps = userMatches.map(match => {
+          // Try to extract the timestamp from the last message
+          let lastUpdateTime = match.updatedAt || match.createdAt;
+          if (match.messages && match.messages.length > 0) {
+            const lastMessage = match.messages[match.messages.length - 1];
+            if (lastMessage.timestamp) {
+              lastUpdateTime = lastMessage.timestamp;
+            }
+          }
+          
+          return {
+            ...match,
+            normalizedTimestamp: normalizeTimestamp(lastUpdateTime)
+          };
         });
-
-        const userPromises = Array.from(userIds).map(async (userId) => {
-          const userData = await getUserById(userId);
-          return [userId, userData];
-        });
-
-        const userEntries = await Promise.all(userPromises);
-        setUserCache(new Map(userEntries));
+        
+        setMatches(matchesWithTimestamps || []);
+        setServices(allServices);
+        setLoading(false);
       } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-      } finally {
+        console.error('Error fetching dashboard data:', error);
         setLoading(false);
       }
     }
 
-    if (currentUserId && !firebaseLoading) {
+    if (currentUser) {
       fetchData();
     }
-  }, [
-    currentUser,
-    currentUserId,
-    getServicesByUserId,
-    getUserMatches,
-    getServiceById,
-    getUserById,
-    router,
-    firebaseLoading,
-  ]);
+    
+    return () => {
+      // Clear the timeout if the component unmounts or dependencies change
+      if (authCheckTimeout) {
+        clearTimeout(authCheckTimeout);
+      }
+    };
+  }, [currentUser, currentUserId, firebaseLoading, getUserMatches, getServicesByUserId, getServiceById, router]);
 
   // Get current user
   const currentUserMemo = useMemo(() => {
@@ -139,7 +192,10 @@ function DashboardContent() {
   // Filter services created by the current user
   const userServices = useMemo(() => {
     if (!services || !currentUserId) return [];
-    return services;
+    // Only include services where the current user is the owner AND the service is not deleted
+    return services.filter(service => 
+      service.userId === currentUserId && service.status !== "deleted"
+    );
   }, [services, currentUserId]);
 
   // Filter matches involving the current user
@@ -165,13 +221,11 @@ function DashboardContent() {
   const filteredServices = useMemo(() => {
     if (!userServices) return [];
 
-    // First, filter out deleted services
-    const activeServices = userServices.filter((s) => s.status !== "deleted");
-
+    // userServices already excludes deleted services, so we only need to filter by type
     if (activeServicesTab === "offering") {
-      return activeServices.filter((s) => s.type === "offering");
+      return userServices.filter((s) => s.type === "offering");
     } else {
-      return activeServices.filter((s) => s.type === "request");
+      return userServices.filter((s) => s.type === "request");
     }
   }, [userServices, activeServicesTab]);
 
@@ -241,7 +295,7 @@ function DashboardContent() {
           <div className="flex flex-wrap justify-center md:justify-start gap-4 sm:gap-6 md:gap-8 md:ml-6">
             <div className="text-center">
               <div className="text-xl sm:text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                {userServices.length}
+                {userServices.filter(s => s.status !== "deleted").length}
               </div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
                 Services
@@ -529,7 +583,15 @@ function DashboardContent() {
                       match.requesterId === currentUserId
                         ? match.providerId
                         : match.requesterId;
+                    
+                    // Get user from cache
                     const otherUser = userCache.get(otherUserId);
+                    
+                    // Generate a display name with fallbacks
+                    const otherUserName = otherUser
+                      ? (otherUser.name || otherUser.displayName || (otherUser.email ? otherUser.email.split('@')[0] : `User ${otherUserId.substring(0, 4)}`))
+                      : `User ${otherUserId ? otherUserId.substring(0, 4) : '?'}`;
+                    
                     const isRequester = match.requesterId === currentUserId;
                     const lastMessage =
                       match.messages?.length > 0
@@ -555,12 +617,12 @@ function DashboardContent() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-4">
                               <div className="h-12 w-12 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-500 dark:text-indigo-300 uppercase font-semibold">
-                                {otherUser?.name?.charAt(0) || "?"}
+                                {otherUserName.charAt(0) || "?"}
                               </div>
                               <div>
                                 <div className="flex items-center">
                                   <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                                    {otherUser?.name || "Unknown User"}
+                                    {otherUserName}
                                   </h4>
                                   <span className="mx-2 text-gray-300 dark:text-gray-600">
                                     •
@@ -600,7 +662,7 @@ function DashboardContent() {
                                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-1">
                                     {lastMessage.senderId === currentUserId
                                       ? "You: "
-                                      : `${otherUser?.name}: `}
+                                      : `${otherUserName}: `}
                                     {lastMessage.content}
                                   </p>
                                 )}
@@ -745,7 +807,7 @@ function DashboardContent() {
                   Offerings (
                   {
                     userServices.filter(
-                      (s) => s.type === "offering" && s.status !== "deleted"
+                      (s) => s.type === "offering"
                     ).length
                   }
                   )
@@ -761,7 +823,7 @@ function DashboardContent() {
                   Requests (
                   {
                     userServices.filter(
-                      (s) => s.type === "request" && s.status !== "deleted"
+                      (s) => s.type === "request"
                     ).length
                   }
                   )

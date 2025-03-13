@@ -1,0 +1,63 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+    
+    // Services collection
+    match /services/{serviceId} {
+      // Allow anyone to read services - no authentication required
+      allow read: if true;
+      
+      // Keep all write operations authenticated
+      allow create: if isAuthenticated();
+      
+      // Prevent updates to deleted services
+      allow update: if isAuthenticated() && 
+                     isOwner(resource.data.userId) && 
+                     resource.data.status != "deleted";
+                     
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // Matches collection
+    match /matches/{matchId} {
+      allow read: if isAuthenticated() && (
+        isOwner(resource.data.requesterId) || 
+        isOwner(resource.data.providerId) ||
+        // Allow service owner to read matches for their service
+        exists(/databases/$(database)/documents/services/$(resource.data.serviceId)) && 
+        isOwner(get(/databases/$(database)/documents/services/$(resource.data.serviceId)).data.userId)
+      );
+      
+      allow create: if isAuthenticated();
+      
+      // Prevent updates to cancelled matches
+      allow update: if isAuthenticated() && 
+                     (isOwner(resource.data.requesterId) || 
+                      isOwner(resource.data.providerId)) && 
+                     resource.data.status != "cancelled";
+                     
+      allow delete: if isAuthenticated() && (
+        isOwner(resource.data.requesterId) || 
+        isOwner(resource.data.providerId) ||
+        // Allow service owner to delete matches for their service
+        exists(/databases/$(database)/documents/services/$(resource.data.serviceId)) && 
+        isOwner(get(/databases/$(database)/documents/services/$(resource.data.serviceId)).data.userId)
+      );
+    }
+  }
+}

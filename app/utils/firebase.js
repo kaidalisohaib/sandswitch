@@ -6,7 +6,7 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -22,6 +22,18 @@ const firebaseConfig = {
 // Initialize Firebase (prevent multiple initializations)
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
+
+// Set persistence to LOCAL (this ensures the user stays logged in even after browser refresh)
+if (typeof window !== "undefined") {
+  setPersistence(auth, browserLocalPersistence)
+    .then(() => {
+      console.log("Firebase auth persistence set to LOCAL");
+    })
+    .catch((error) => {
+      console.error("Error setting auth persistence:", error);
+    });
+}
+
 const db = getFirestore(app);
 
 export { app, auth, db };

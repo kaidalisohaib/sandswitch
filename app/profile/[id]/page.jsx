@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, notFound } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -17,74 +17,285 @@ export default function ProfilePage() {
   const [services, setServices] = useState([]);
   const [matches, setMatches] = useState([]);
   const [error, setError] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authRetryCount, setAuthRetryCount] = useState(0);
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
 
-  const { getUserById, getServicesByUserId, getUserMatches, currentUser, firebaseLoading } = useFirebase();
+  const { 
+    getUserById, 
+    getServicesByUserId, 
+    getUserMatches, 
+    currentUser, 
+    isLoading, // Get the standard loading state as fallback
+    firebaseLoading, 
+    authInitialized 
+  } = useFirebase();
+  
   const router = useRouter();
+
+  // Add a safety timeout to prevent infinite loading
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoadingTimeout(true);
+      
+      // If we have a user but we're stuck loading, let's try to move forward
+      if (currentUser && loading) {
+        setAuthChecked(true);
+      }
+    }, 10000); // 10 second timeout
+
+    return () => clearTimeout(timer);
+  }, [currentUser, loading]);
 
   // Get current user ID from context
   const currentUserId = currentUser?.id;
 
-  // Check if user is authenticated and redirect to login if not
+  // Check for user data in sessionStorage as fallback
   useEffect(() => {
-    if (!firebaseLoading && !currentUser) {
-      // Redirect to login if user is not authenticated
-      router.push(`/login?redirect=/profile/${id}`);
-    }
-  }, [currentUser, firebaseLoading, router, id]);
-
-  useEffect(() => {
-    const loadUserData = async () => {
-      setLoading(true);
-      setError(null);
+    let mounted = true;
+    
+    const checkSessionStorage = () => {
       try {
-        // Load user data
-        const userData = await getUserById(id);
-        if (!userData) {
-          setError('User not found');
+        // If we already have a user, skip this check
+        if (currentUser) {
+          if (mounted) setAuthChecked(true);
           return;
         }
-        setUser(userData);
+        
+        console.log("Checking session storage for user data");
+        const sessionUser = sessionStorage.getItem('firebase_user');
+        if (sessionUser && mounted) {
+          console.log("Found user in session storage");
+          // We found a user in session storage, no need to redirect
+          setAuthChecked(true);
+        }
+      } catch (err) {
+        console.error("Error checking session storage:", err);
+      }
+    };
+    
+    checkSessionStorage();
+    
+    return () => {
+      mounted = false;
+    };
+  }, [currentUser]);
 
-        // Load user's services and matches in parallel
-        const [userServices, userMatches] = await Promise.all([
-          getServicesByUserId(id),
-          getUserMatches(id)
-        ]);
+  // Separate authentication check with progressive retries
+  useEffect(() => {
+    let mounted = true;
+    let authTimer;
 
-        setServices(userServices);
-        setMatches(userMatches);
-      } catch (error) {
-        console.error('Error loading profile data:', error);
-        setError(error.message);
-      } finally {
-        setLoading(false);
+    const checkAuth = () => {
+      // Only proceed if component is still mounted
+      if (!mounted) return;
+      
+      // Safely log auth state (handle undefined values)
+      console.log("Check auth - Loading:", firebaseLoading !== undefined ? firebaseLoading : isLoading, 
+                 "User:", currentUser?.id || "none", 
+                 "Initialized:", authInitialized !== undefined ? authInitialized : false);
+
+      // If we have a user, we're authenticated regardless of other states
+      if (currentUser) {
+        console.log("User found - setting auth checked");
+        setAuthChecked(true);
+        return;
+      }
+
+      // If auth is fully initialized or loading is definitely complete
+      const isAuthReady = authInitialized !== undefined ? authInitialized : !isLoading;
+      const isLoaded = firebaseLoading !== undefined ? !firebaseLoading : !isLoading;
+      
+      if (isAuthReady || isLoaded || loadingTimeout) {
+        if (!currentUser) {
+          console.log("No user found - redirecting to login");
+          // No user after Firebase has initialized, redirect to login
+          router.push(`/login?redirect=/profile/${id}`);
+        } else {
+          console.log("Auth check complete - user authenticated");
+          // User is authenticated, mark as checked
+          setAuthChecked(true);
+        }
+      } else if (authRetryCount < 5) {
+        // Exponential backoff for retries (0.5s, 1s, 2s, 4s, 8s)
+        const delay = Math.pow(2, authRetryCount) * 500;
+        console.log(`Auth not ready, retry in ${delay}ms (attempt ${authRetryCount + 1}/5)`);
+        
+        // Increment retry count and try again after delay
+        setAuthRetryCount(prev => prev + 1);
+        authTimer = setTimeout(checkAuth, delay);
+      } else {
+        // Max retries reached, redirect to login as fallback
+        console.log("Max auth retries reached, redirecting to login");
+        router.push(`/login?redirect=/profile/${id}`);
       }
     };
 
-    // Only load data if user is authenticated
-    if (currentUser) {
-      loadUserData();
+    // Start the auth check process
+    checkAuth();
+
+    // Cleanup function
+    return () => {
+      mounted = false;
+      if (authTimer) clearTimeout(authTimer);
+    };
+  }, [currentUser, firebaseLoading, isLoading, authInitialized, router, id, authRetryCount, loadingTimeout]);
+
+  // Load user data only after authentication is confirmed
+  const loadUserData = useCallback(async () => {
+    if (!authChecked && !loadingTimeout) {
+      console.log("Auth not checked yet, skipping data load");
+      return;
     }
-  }, [id, getUserById, getServicesByUserId, getUserMatches, currentUser]);
+    
+    // If we're in a timeout situation but have currentUser, proceed
+    if (!currentUser && !sessionStorage.getItem('firebase_user') && !loadingTimeout) {
+      console.log("No authenticated user, skipping data load");
+      return;
+    }
 
-  if (loading) {
+    console.log("Loading profile data for user:", id);
+    setLoading(true);
+    setError(null);
+    try {
+      // Check if we're viewing the current user's profile and use that data if available
+      let userData;
+      if (currentUser && id === currentUser.id) {
+        console.log("Using currentUser data for profile:", currentUser);
+        userData = currentUser;
+      } else {
+        // Load user data from database
+        userData = await getUserById(id);
+      }
+      
+      console.log("User data loaded:", userData);
+      
+      if (!userData) {
+        setError('User not found');
+        return;
+      }
+      
+      // Make sure the user has a name property
+      if (!userData.name && userData.displayName) {
+        userData.name = userData.displayName;
+      }
+      
+      // Add fallback for name if it's still missing
+      if (!userData.name) {
+        console.warn("User name is missing, using email or fallback");
+        userData.name = userData.email ? userData.email.split('@')[0] : "User " + userData.id.substring(0, 4);
+      }
+      
+      setUser(userData);
+      console.log("User set to:", userData);
+
+      // Important: Load data in sequence and capture it in local variables first
+      console.log("======= LOADING USER SERVICES AND MATCHES =======");
+      console.log("Current auth state:", { 
+        currentUser: currentUser?.id, 
+        isAuthenticated: !!currentUser,
+        authInitialized
+      });
+      
+      try {
+        // Load services - these are public and can be loaded for anyone
+        const userServices = await getServicesByUserId(id);
+        console.log("Loaded services count:", userServices?.length || 0);
+        setServices(userServices || []);
+        
+        // For matches, only load them if this is the current user's profile
+        let userMatches = [];
+        if (currentUser && id === currentUser.id) {
+          // Only load matches for the current user's own profile
+          console.log("Loading matches for current user's profile");
+          userMatches = await getUserMatches(id);
+          console.log("MATCH LOADING COMPLETE - Received matches:", userMatches?.length || 0);
+          
+          // Calculate stats here, with the userMatches that we just loaded
+          const matchesCompleted = userMatches.filter(m => m.status === "completed").length;
+          const hasRequesterProviderCompleted = userMatches.filter(m => 
+            m.requesterCompleted && m.providerCompleted
+          ).length;
+          
+          console.log("Stats from loaded matches:", {
+            matchesCompleted,
+            hasRequesterProviderCompleted,
+            userCompletedMatches: userData.completedMatches || 0
+          });
+        } else {
+          // For other users' profiles, don't load matches (security rules would deny it anyway)
+          console.log("Viewing another user's profile - not loading their matches");
+          userMatches = [];
+        }
+        
+        // Set matches state
+        setMatches(userMatches);
+      } catch (loadError) {
+        console.error("Error loading data:", loadError);
+        setServices([]);
+        setMatches([]);
+      }
+    } catch (error) {
+      console.error('Error loading profile data:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [authChecked, currentUser, getUserById, getServicesByUserId, getUserMatches, id, loadingTimeout]);
+
+  // Load user data once authentication is confirmed
+  useEffect(() => {
+    loadUserData();
+  }, [loadUserData]);
+
+  // Show loading state while authentication or data is loading
+  // Add a timeout escape hatch
+  if ((!authInitialized && !loadingTimeout) || (firebaseLoading && !loadingTimeout) || (authChecked && loading && !loadingTimeout)) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+      <div className="flex flex-col justify-center items-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500 mb-3"></div>
+        <div className="text-gray-500 dark:text-gray-400">
+          {!authInitialized ? "Verifying authentication..." : "Loading profile..."}
+        </div>
+        {loadingTimeout && (
+          <div className="mt-4 text-sm text-yellow-600 dark:text-yellow-400">
+            Taking longer than expected...
+          </div>
+        )}
       </div>
     );
   }
 
-  if (error) {
+  // If we're in a timeout state, try to render content if we have user data
+  if (loadingTimeout && !user) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="text-red-500 dark:text-red-400">Error: {error}</div>
+      <div className="flex flex-col justify-center items-center min-h-screen">
+        <div className="text-red-500 dark:text-red-400 mb-3">
+          Loading took too long.
+        </div>
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md"
+        >
+          Try Again
+        </button>
       </div>
     );
   }
 
-  if (!user) {
-    return notFound();
+  // Don't show error or 404 until auth is checked (prevents flashing errors during login)
+  if (authChecked || loadingTimeout) {
+    if (error) {
+      return (
+        <div className="flex justify-center items-center min-h-screen">
+          <div className="text-red-500 dark:text-red-400">Error: {error}</div>
+        </div>
+      );
+    }
+
+    if (!user) {
+      return notFound();
+    }
   }
 
   // Calculate stats
@@ -92,8 +303,8 @@ export default function ProfilePage() {
     servicesOffered: services.filter(s => s.type === "offering" && s.status !== "deleted").length,
     servicesRequested: services.filter(s => s.type === "request" && s.status !== "deleted").length,
     matchesCompleted: matches.filter(m => m.status === "completed").length,
-    rating: user.rating || "⭐ Coming Soon",
-    memberSince: user.createdAt 
+    rating: user?.rating || "⭐ Coming Soon",
+    memberSince: user?.createdAt 
       ? formatDate(user.createdAt, 'MMMM yyyy')
       : formatDate(new Date(), 'MMMM yyyy')
   };
@@ -106,6 +317,15 @@ export default function ProfilePage() {
     if (statusFilter === 'completed' && m.status === 'completed') return true;
     return false;
   });
+
+  // Only render the profile if authentication is confirmed and user data is loaded
+  if (!authChecked || !user) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -192,16 +412,21 @@ export default function ProfilePage() {
             >
               Services
             </button>
-            <button
-              onClick={() => setActiveTab("matches")}
-              className={`flex-1 px-4 py-4 text-sm font-medium text-center ${
-                activeTab === "matches"
-                  ? "text-indigo-600 dark:text-indigo-400 bg-gray-50 dark:bg-gray-700/50"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-              }`}
-            >
-              Matches
-            </button>
+            
+            {/* Only show matches tab on current user's profile */}
+            {currentUser && id === currentUser.id && (
+              <button
+                onClick={() => setActiveTab("matches")}
+                className={`flex-1 px-4 py-4 text-sm font-medium text-center ${
+                  activeTab === "matches"
+                    ? "text-indigo-600 dark:text-indigo-400 bg-gray-50 dark:bg-gray-700/50"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                }`}
+              >
+                Matches
+              </button>
+            )}
+            
             <button
               onClick={() => setActiveTab("reviews")}
               className={`flex-1 px-4 py-4 text-sm font-medium text-center ${
