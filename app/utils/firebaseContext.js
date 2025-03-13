@@ -43,41 +43,132 @@ export function FirebaseProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [authInitialized, setAuthInitialized] = useState(false);
+
+  // Check for user in session storage as fallback
+  useEffect(() => {
+    // This runs once on initial load to check if we have stored user data
+    try {
+      if (typeof window !== "undefined" && !currentUser && isLoading) {
+        const sessionUser = sessionStorage.getItem('firebase_user');
+        if (sessionUser) {
+          const userData = JSON.parse(sessionUser);
+          console.log("Restored user from session storage:", userData.id);
+          setCurrentUser(userData);
+        }
+      }
+    } catch (err) {
+      console.error("Error checking session storage:", err);
+    }
+  }, []);
 
   // Listen for auth state changes
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      async (user) => {
-        try {
-          if (user) {
-            const result = await FirebaseService.getUser(user.uid);
-            if (result.success) {
-              setCurrentUser({ 
-                id: user.uid, 
-                emailVerified: user.emailVerified,
-                ...result.user 
-              });
-            }
-          } else {
-            setCurrentUser(null);
-          }
-        } catch (err) {
-          console.error("Error getting user data:", err);
-          setError("Failed to get user data");
-        } finally {
+    let authCheckTimeout;
+    
+    // Set a flag to track the component mount state
+    let isMounted = true;
+    
+    console.log("Setting up Firebase auth listener");
+    
+    // Create a promise that resolves when auth state is determined
+    const authCheckPromise = new Promise((resolve) => {
+      // Set a timeout for auth initialization as fallback
+      authCheckTimeout = setTimeout(() => {
+        if (isMounted) {
+          console.log("Auth state check timed out after 5s");
+          setAuthInitialized(true);
           setIsLoading(false);
+          resolve();
         }
-      },
-      (error) => {
-        console.error("Auth state error:", error);
-        setError("Authentication error");
-        setIsLoading(false);
-      }
-    );
-
-    // Cleanup subscription
-    return () => unsubscribe();
+      }, 5000);
+      
+      // Listen for auth state changes
+      const unsubscribe = onAuthStateChanged(
+        auth,
+        async (user) => {
+          if (!isMounted) return;
+          
+          console.log("Auth state changed:", user ? `User: ${user.uid}` : "No user");
+          clearTimeout(authCheckTimeout);
+          
+          try {
+            if (user) {
+              const result = await FirebaseService.getUser(user.uid);
+              if (result.success) {
+                const userData = { 
+                  id: user.uid, 
+                  emailVerified: user.emailVerified,
+                  email: user.email,
+                  // Ensure we capture displayName from Firebase Auth
+                  displayName: user.displayName,
+                  // Use displayName as name if available and no name in Firestore
+                  name: result.user.name || user.displayName || (user.email ? user.email.split('@')[0] : null),
+                  ...result.user 
+                };
+                
+                console.log("Setting current user with data:", userData);
+                setCurrentUser(userData);
+                
+                // Store user in session storage as fallback
+                try {
+                  if (typeof window !== "undefined") {
+                    sessionStorage.setItem('firebase_user', JSON.stringify(userData));
+                  }
+                } catch (err) {
+                  console.error("Error saving to session storage:", err);
+                }
+              }
+            } else {
+              setCurrentUser(null);
+              // Clear session storage when logged out
+              try {
+                if (typeof window !== "undefined") {
+                  sessionStorage.removeItem('firebase_user');
+                }
+              } catch (err) {
+                console.error("Error removing from session storage:", err);
+              }
+            }
+          } catch (err) {
+            console.error("Error getting user data:", err);
+            setError("Failed to get user data");
+          } finally {
+            setAuthInitialized(true);
+            setIsLoading(false);
+            resolve();
+          }
+        },
+        (error) => {
+          if (!isMounted) return;
+          
+          console.error("Auth state error:", error);
+          clearTimeout(authCheckTimeout);
+          setError("Authentication error");
+          setAuthInitialized(true);
+          setIsLoading(false);
+          resolve();
+        }
+      );
+      
+      // Return cleanup function
+      return () => {
+        isMounted = false;
+        clearTimeout(authCheckTimeout);
+        unsubscribe();
+      };
+    });
+    
+    // Execute the auth check
+    authCheckPromise.catch(err => {
+      console.error("Auth check promise error:", err);
+    });
+    
+    // Cleanup function
+    return () => {
+      isMounted = false;
+      clearTimeout(authCheckTimeout);
+    };
   }, []);
 
   // Auth functions
@@ -100,11 +191,27 @@ export function FirebaseProvider({ children }) {
       if (result.success) {
         const userData = await FirebaseService.getUser(result.user.id);
         if (userData.success) {
-          setCurrentUser({ 
+          const userInfo = { 
             id: result.user.id, 
             emailVerified: result.user.emailVerified,
+            email: result.user.email,
+            // Ensure we capture name from Firebase Auth if not in Firestore
+            displayName: result.user.displayName,
+            name: userData.user.name || result.user.displayName || result.user.name || (result.user.email ? result.user.email.split('@')[0] : null),
             ...userData.user 
-          });
+          };
+          
+          console.log("Login successful, setting current user:", userInfo);
+          setCurrentUser(userInfo);
+          
+          // Store in session storage for persistence
+          try {
+            if (typeof window !== "undefined") {
+              sessionStorage.setItem('firebase_user', JSON.stringify(userInfo));
+            }
+          } catch (err) {
+            console.error("Error saving user to session storage during login:", err);
+          }
         }
       }
       // Don't set error state for auth errors, just return the result
@@ -182,21 +289,56 @@ export function FirebaseProvider({ children }) {
     // Check cache first
     const now = Date.now();
     if (cache.users.data[userId] && (now - cache.users.timestamp[userId] < CACHE_EXPIRY)) {
+      console.log("Returning cached user data for:", userId);
       return cache.users.data[userId];
     }
     
     try {
       const result = await FirebaseService.getUser(userId);
+      console.log("Result from getUser:", result);
+      
       if (result.success) {
+        // Ensure the user data has all required fields with defaults as needed
+        const userData = {
+          id: userId,
+          name: result.user.name || result.user.displayName || (result.user.email ? result.user.email.split('@')[0] : `User ${userId.substring(0,4)}`),
+          email: result.user.email || "",
+          createdAt: result.user.createdAt || new Date(),
+          completedMatches: result.user.completedMatches || 0,
+          rating: result.user.rating || null,
+          ...result.user
+        };
+        
         // Update cache
-        cache.users.data[userId] = result.user;
+        cache.users.data[userId] = userData;
         cache.users.timestamp[userId] = now;
-        return result.user;
+        return userData;
       }
-      return null;
+      
+      // If we got a success: false result but still need to return something
+      if (userId === currentUser?.id) {
+        // For current user, return their Firebase auth data
+        console.log("Using current user data as fallback");
+        return currentUser;
+      }
+      
+      // Last resort, return minimal user object
+      console.log("Creating minimal user object for:", userId);
+      return {
+        id: userId,
+        name: `User ${userId.substring(0, 4)}`,
+        createdAt: new Date(),
+        completedMatches: 0
+      };
     } catch (error) {
+      console.error(`Error fetching user ${userId}:`, error);
       setError(`Error fetching user: ${error.message}`);
-      return null;
+      return {
+        id: userId,
+        name: `User ${userId.substring(0, 4)}`,
+        createdAt: new Date(),
+        completedMatches: 0
+      };
     }
   };
 
@@ -396,9 +538,24 @@ export function FirebaseProvider({ children }) {
   };
 
   const getUserMatches = async (userId) => {
-    const result = await FirebaseService.getUserMatches(userId || currentUser?.id);
-    // Return the matches array directly if successful, otherwise return an empty array
-    return result.success ? result.matches : [];
+    try {
+      console.log("firebaseContext.getUserMatches called for:", userId || currentUser?.id);
+      const result = await FirebaseService.getUserMatches(userId || currentUser?.id);
+      console.log("firebaseContext.getUserMatches result:", { 
+        success: result.success, 
+        matchCount: result.matches?.length || 0
+      });
+      
+      // Return the matches array directly if successful, otherwise return an empty array
+      if (result.success && Array.isArray(result.matches)) {
+        return result.matches;
+      }
+      console.warn("getUserMatches did not return a valid array:", result);
+      return [];
+    } catch (error) {
+      console.error("Error in firebaseContext.getUserMatches:", error);
+      return [];
+    }
   };
 
   // Message functions
@@ -447,6 +604,8 @@ export function FirebaseProvider({ children }) {
   const value = {
     currentUser,
     isLoading,
+    firebaseLoading: isLoading,
+    authInitialized,
     error,
     setError,
     categories: serviceCategories,

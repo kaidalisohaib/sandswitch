@@ -8,8 +8,7 @@ export default function AboutPage() {
           About SandSwitch
         </h1>
         <p className="mt-4 text-lg text-gray-600 dark:text-gray-300 max-w-3xl mx-auto">
-          A community-driven platform for exchanging services within CEGEP John
-          Abbott.
+          A community-driven platform where you can offer services to others in exchange for a delicious sandwich reward.
         </p>
       </div>
 
@@ -24,7 +23,8 @@ export default function AboutPage() {
             a more connected and supportive community at CEGEP John Abbott
             through the exchange of services. We believe that everyone has
             something valuable to offer, whether it's academic help, creative
-            skills, or simply sharing a sandwich with someone in need.
+            skills, or other services. In return for your service, you'll receive
+            a delicious sandwich as a token of appreciation.
           </p>
 
           <p className="text-gray-600 dark:text-gray-300 mb-6">
@@ -36,24 +36,25 @@ export default function AboutPage() {
           </p>
 
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mt-10 mb-6">
-            How We Started
+            How It Works
           </h2>
 
           <p className="text-gray-600 dark:text-gray-300 mb-6">
-            SandSwitch began as a project by a group of students who recognized
-            the need for a more streamlined way for students to help each other.
-            We noticed that students often had skills or resources that could
-            benefit others, but lacked a centralized platform to connect with
-            those who needed them.
+            The process is simple:
           </p>
+          <ol className="list-decimal list-inside text-gray-600 dark:text-gray-300 mb-6 space-y-2">
+            <li>Browse available services or create your own service offering</li>
+            <li>Connect with others who need your help</li>
+            <li>Complete the service as agreed</li>
+            <li>Submit proof of completion to receive your sandwich reward</li>
+          </ol>
 
           <p className="text-gray-600 dark:text-gray-300 mb-6">
-            The name "SandSwitch" was inspired by one of the most common and
-            meaningful exchanges we saw among students - sharing food,
-            especially sandwiches, with those who might have forgotten their
-            lunch or couldn't afford one. This simple act of kindness
-            represented exactly the kind of community spirit we wanted to
-            foster.
+            The name "SandSwitch" comes from the unique reward system - after
+            completing a service, you'll receive a sandwich as a thank you for
+            your contribution to the community. This simple reward represents
+            our commitment to fostering a supportive environment where everyone
+            can both give and receive help.
           </p>
 
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mt-10 mb-6">
@@ -145,6 +146,8 @@ export default function AboutPage() {
             Whether you're offering help or seeking it, SandSwitch is here to
             connect you with others in our community. Join us today and be part
             of building a more supportive and connected campus environment.
+            Remember, every service you provide brings you one step closer to
+            your next delicious sandwich reward!
           </p>
 
           <div className="flex flex-col sm:flex-row justify-center gap-4">
@@ -173,12 +176,12 @@ export default function AboutPage() {
           <div className="space-y-6">
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                Is SandSwitch only for CEGEP John Abbott students?
+                How does the sandwich reward system work?
               </h3>
               <p className="text-gray-600 dark:text-gray-300">
-                Currently, SandSwitch is designed specifically for the CEGEP
-                John Abbott community, including students, faculty, and staff.
-                In the future, we may expand to other educational institutions.
+                After completing a service, you'll need to submit proof of completion
+                to Valentina. Once verified, you'll receive a delicious sandwich as
+                a thank you for your contribution to the community.
               </p>
             </div>
 
@@ -187,9 +190,9 @@ export default function AboutPage() {
                 Is there a cost to use SandSwitch?
               </h3>
               <p className="text-gray-600 dark:text-gray-300">
-                No, SandSwitch is completely free to use. Our platform is
-                centered around the exchange of services rather than monetary
-                transactions.
+                No, SandSwitch is completely free to use. The platform operates on
+                a reward system where service providers receive sandwiches as tokens
+                of appreciation for their contributions.
               </p>
             </div>
 

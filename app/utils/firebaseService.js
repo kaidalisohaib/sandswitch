@@ -287,40 +287,71 @@ export const getUser = async (userId) => {
       return { success: false, error: 'User ID is required' };
     }
     
-    // Check if user is authenticated first
-    if (!auth.currentUser) {
-      console.log("Not authenticated, returning minimal user data");
-      // Return a minimal user object when not authenticated
+    // Always try to get the user data from Firestore, even if not authenticated
+    // This is important for public profile pages
+    const userRef = doc(db, COLLECTIONS.USERS, userId);
+    const userSnap = await getDoc(userRef);
+    
+    // If the user exists in Firestore, return their data
+    if (userSnap.exists()) {
+      const userData = userSnap.data();
+      
+      // Make sure we have a proper name property
+      if (!userData.name) {
+        // If displayName is available, use it
+        if (userData.displayName) {
+          userData.name = userData.displayName;
+        }
+        // If email is available, use the first part
+        else if (userData.email) {
+          userData.name = userData.email.split('@')[0];
+        }
+        // Last resort, use a placeholder with user ID
+        else {
+          userData.name = `User ${userId.substring(0, 4)}`;
+        }
+      }
+      
       return { 
         success: true, 
         user: { 
-          id: userId,
-          name: "User",
-          joinedDate: null,
-          rating: null,
-          completedServices: 0
+          ...userData, 
+          id: userId 
         } 
       };
     }
     
-    const userRef = doc(db, COLLECTIONS.USERS, userId);
-    const userSnap = await getDoc(userRef);
-    if (userSnap.exists()) {
-      return { success: true, user: { ...userSnap.data(), id: userId } };
-    }
-    return { success: false, error: 'User not found' };
+    // If user doesn't exist in Firestore but we need to return something,
+    // return a minimal user object
+    console.log(`User with ID ${userId} not found in Firestore, returning minimal data`);
+    return { 
+      success: true, 
+      user: { 
+        id: userId,
+        name: userId === auth.currentUser?.uid ? 
+          (auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || `User ${userId.substring(0, 4)}`) : 
+          `User ${userId.substring(0, 4)}`,
+        email: userId === auth.currentUser?.uid ? auth.currentUser?.email : null,
+        joinedDate: null,
+        rating: null,
+        completedMatches: 0
+      } 
+    };
   } catch (error) {
-    // If we get a permission error, return a minimal user object
+    // If we get a permission error, still try to return a useful user object
     if (error.code === 'permission-denied') {
       console.log("Permission denied when getting user, returning minimal data");
       return { 
         success: true, 
         user: { 
           id: userId,
-          name: "User",
+          name: userId === auth.currentUser?.uid ? 
+            (auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || `User ${userId.substring(0, 4)}`) : 
+            `User ${userId.substring(0, 4)}`,
+          email: userId === auth.currentUser?.uid ? auth.currentUser?.email : null,
           joinedDate: null,
           rating: null,
-          completedServices: 0
+          completedMatches: 0
         } 
       };
     }
@@ -718,29 +749,70 @@ export const getMatch = async (matchId) => {
 
 export const getUserMatches = async (userId) => {
   try {
-    // If not authenticated, return empty array instead of attempting the query
+    // More detailed logging
+    console.log(`getUserMatches called for userId: ${userId}`);
+    console.log(`Current auth state: ${auth.currentUser ? 'Authenticated as ' + auth.currentUser.uid : 'Not authenticated'}`);
+    
+    // If not authenticated, we shouldn't block the request for public profile pages
+    // Only log a warning instead of returning an empty array
     if (!auth.currentUser) {
-      console.log("Not authenticated, returning empty matches array");
-      return { success: true, matches: [] };
+      console.warn("Note: Fetching matches while not authenticated - this may return limited results");
+      // Continue with the request instead of returning early
     }
     
-    const [requestedSnap, providedSnap] = await Promise.all([
-      getDocs(query(collection(db, COLLECTIONS.MATCHES), where("requesterId", "==", userId))),
-      getDocs(query(collection(db, COLLECTIONS.MATCHES), where("providerId", "==", userId))),
-    ]);
+    // Ensure userId is valid
+    if (!userId) {
+      console.error("getUserMatches called with invalid userId:", userId);
+      return { success: false, error: 'Invalid user ID', matches: [] };
+    }
+    
+    console.log(`Fetching matches where user ${userId} is requester or provider...`);
+    
+    try {
+      // Fetch all matches where the user is either the requester or the provider
+      const [requestedSnap, providedSnap] = await Promise.all([
+        getDocs(query(collection(db, COLLECTIONS.MATCHES), where("requesterId", "==", userId))),
+        getDocs(query(collection(db, COLLECTIONS.MATCHES), where("providerId", "==", userId))),
+      ]);
 
-    const matches = [
-      ...requestedSnap.docs.map(doc => ({ ...doc.data(), id: doc.id })),
-      ...providedSnap.docs.map(doc => ({ ...doc.data(), id: doc.id })),
-    ];
+      console.log(`Found ${requestedSnap.size} matches as requester and ${providedSnap.size} matches as provider`);
 
-    return { success: true, matches };
+      const matches = [
+        ...requestedSnap.docs.map(doc => ({ ...doc.data(), id: doc.id })),
+        ...providedSnap.docs.map(doc => ({ ...doc.data(), id: doc.id })),
+      ];
+
+      console.log(`Total combined matches: ${matches.length}`);
+      
+      // If no matches were found, this might be unexpected - log it
+      if (matches.length === 0) {
+        console.log("No matches found for user:", userId);
+        
+        // Check if the MATCHES collection exists and has documents
+        const matchesCollectionRef = collection(db, COLLECTIONS.MATCHES);
+        const sampleMatchesSnapshot = await getDocs(query(matchesCollectionRef, limit(1)));
+        
+        if (sampleMatchesSnapshot.empty) {
+          console.warn("The MATCHES collection appears to be empty or doesn't exist");
+        } else {
+          console.log("The MATCHES collection exists and has at least one document");
+        }
+      }
+
+      return { success: true, matches };
+    } catch (innerError) {
+      console.error("Error in database query for matches:", innerError);
+      
+      // Still return success with empty array to prevent UI errors
+      return { success: true, matches: [] };
+    }
   } catch (error) {
     // If permission error, return empty array
     if (error.code === 'permission-denied') {
       console.log("Permission denied when getting user matches, returning empty array");
       return { success: true, matches: [] };
     }
+    console.error("Error in getUserMatches:", error);
     return handleError(error, 'Error getting user matches');
   }
 };
@@ -853,6 +925,33 @@ export const updateMatchCompletion = async (matchId, userId, isCompleted) => {
     // Update match status if needed
     if (bothCompleted) {
       updates.status = 'completed';
+      
+      // Get both user IDs
+      const requesterId = matchData.requesterId;
+      const providerId = matchData.providerId;
+      
+      // Get both users' data to update their completion stats
+      const requesterRef = doc(db, COLLECTIONS.USERS, requesterId);
+      const providerRef = doc(db, COLLECTIONS.USERS, providerId);
+      
+      try {
+        // Update requester's stats
+        await updateDoc(requesterRef, {
+          completedMatches: increment(1),
+          updatedAt: serverTimestamp()
+        });
+        
+        // Update provider's stats
+        await updateDoc(providerRef, {
+          completedMatches: increment(1),
+          updatedAt: serverTimestamp()
+        });
+        
+        console.log(`Updated completion stats for users ${requesterId} and ${providerId}`);
+      } catch (statsError) {
+        console.error('Error updating user completion stats:', statsError);
+        // Continue with the match update even if the stats update fails
+      }
     }
     
     // Log the updates
