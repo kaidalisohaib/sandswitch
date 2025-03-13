@@ -14,6 +14,20 @@ export default function FilterBar({
     setSearchTerm(activeFilter.searchTerm || "");
   }, [activeFilter.searchTerm]);
 
+  // Add debounce function
+  const debounce = (func, wait) => {
+    let timeout;
+    return (...args) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func(...args), wait);
+    };
+  };
+
+  // Debounced search handler
+  const handleSearch = debounce((e) => {
+    onFilterChange({ searchTerm: e.target.value });
+  }, 300); // Wait 300ms before triggering search
+
   // Apply search filter with debounce
   useEffect(() => {
     // Skip initial render
@@ -28,11 +42,6 @@ export default function FilterBar({
 
     return () => clearTimeout(timer);
   }, [searchTerm, onFilterChange, isLoading, activeFilter.searchTerm]);
-
-  const handleSearch = (e) => {
-    e.preventDefault();
-    // This is now just for form submission, filtering happens automatically through useEffect
-  };
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">

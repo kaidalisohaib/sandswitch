@@ -130,45 +130,29 @@ const Chat = ({
 
   // Subscribe to match updates - use a ref to avoid dependency issues
   const matchDataRef = useRef({ match: null, service: null });
+  const unsubscribeRef = useRef(null);
   
   useEffect(() => {
-    if (!matchId) return;
-
-    // Reset local state when matchId changes
-    setLocalMessages([]);
-    setError(null);
-    setMatchData({ match: null, service: null });
-    matchDataRef.current = { match: null, service: null };
-
-    // Stable listener function that doesn't change between renders
-    const handleMatchUpdate = (updatedMatch) => {
-      if (updatedMatch?.messages) {
-        setLocalMessages(prevMessages => {
-          // If we don't have previous messages, use the updated ones
-          if (!prevMessages || prevMessages.length === 0) {
-            return updatedMatch.messages;
-          }
-          
-          // // Keep temp messages but update the rest
-          // const tempMessages = prevMessages.filter(msg => msg.id.startsWith('temp-'));
-          // const nonTempMessages = updatedMatch.messages.filter(msg => !msg.id.startsWith('temp-'));
-          
-          // return [...nonTempMessages, ...tempMessages];
-
-          return [...updatedMatch.messages];
-        });
+    if (matchId) {
+      // Cleanup previous subscription if exists
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
       }
-    };
 
-    const unsubscribe = subscribeToMatch(matchId, handleMatchUpdate);
-    return () => {
-      unsubscribe();
-      // Clear state on unmount
-      setLocalMessages([]);
-      setError(null);
-      setMatchData({ match: null, service: null });
-      matchDataRef.current = { match: null, service: null };
-    };
+      // Setup new subscription
+      unsubscribeRef.current = subscribeToMatch(matchId, (updatedMatch) => {
+        if (updatedMatch?.messages) {
+          setLocalMessages(updatedMatch.messages);
+        }
+      });
+
+      // Cleanup on unmount or matchId change
+      return () => {
+        if (unsubscribeRef.current) {
+          unsubscribeRef.current();
+        }
+      };
+    }
   }, [matchId, subscribeToMatch]);
 
   // Load match and service data only once initially
