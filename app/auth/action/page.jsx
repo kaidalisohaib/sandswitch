@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useFirebase } from '../../utils/firebaseContext';
 import { verifyEmail, confirmPasswordReset } from '../../utils/firebaseService';
 import { Spinner } from '../../components/Spinner';
 import Link from 'next/link';
 
-export default function ActionPage() {
+// Create a separate component for the action content
+function ActionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { currentUser, firebaseLoading } = useFirebase();
@@ -287,5 +288,31 @@ export default function ActionPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Create a loading fallback component
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="bg-white dark:bg-gray-800 py-8 px-4 shadow sm:rounded-lg sm:px-10">
+            <div className="flex justify-center">
+              <Spinner />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Main component wrapped in Suspense
+export default function ActionPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <ActionContent />
+    </Suspense>
   );
 } 
