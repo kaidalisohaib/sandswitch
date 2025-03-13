@@ -21,6 +21,15 @@ const serviceCategories = [
   "Miscellaneous",
 ];
 
+// Add these right after your imports
+
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes cache expiry
+const cache = {
+  services: { data: null, timestamp: 0 },
+  users: { data: {}, timestamp: {} },
+  servicesByUser: { data: {}, timestamp: {} }
+};
+
 // Hook to use the context
 export function useFirebase() {
   const context = useContext(FirebaseContext);
@@ -168,27 +177,25 @@ export function FirebaseProvider({ children }) {
 
   // User Data
   const getUserById = async (userId) => {
+    if (!userId) return null;
+    
+    // Check cache first
+    const now = Date.now();
+    if (cache.users.data[userId] && (now - cache.users.timestamp[userId] < CACHE_EXPIRY)) {
+      return cache.users.data[userId];
+    }
+    
     try {
-      if (!userId) {
-        console.log("No user ID provided");
-        return null;
-      }
-      
       const result = await FirebaseService.getUser(userId);
-      return result.success ? result.user : null;
-    } catch (error) {
-      console.error("Error getting user:", error);
-      // Create a minimal placeholder user object if there's a permission error
-      if (error.code === 'permission-denied') {
-        console.log("Permission denied when getting user, using placeholder");
-        return {
-          id: userId,
-          name: "User",
-          joinedDate: null,
-          rating: null,
-          completedServices: 0
-        };
+      if (result.success) {
+        // Update cache
+        cache.users.data[userId] = result.user;
+        cache.users.timestamp[userId] = now;
+        return result.user;
       }
+      return null;
+    } catch (error) {
+      setError(`Error fetching user: ${error.message}`);
       return null;
     }
   };
@@ -207,13 +214,20 @@ export function FirebaseProvider({ children }) {
 
   // Service functions
   const createService = async (serviceData) => {
-    if (!currentUser) {
-      return { success: false, error: "User not authenticated" };
+    try {
+      const result = await FirebaseService.createService(serviceData);
+      if (result.success) {
+        // Invalidate services cache
+        invalidateCache('services');
+        if (serviceData.userId) {
+          invalidateCache('servicesByUser', serviceData.userId);
+        }
+      }
+      return result;
+    } catch (error) {
+      setError(`Error creating service: ${error.message}`);
+      return { success: false, error: error.message };
     }
-    return await FirebaseService.createService({
-      ...serviceData,
-      userId: currentUser.id,
-    });
   };
 
   const updateService = async (serviceId, data) => {
@@ -225,25 +239,104 @@ export function FirebaseProvider({ children }) {
   };
 
   const getServiceById = async (serviceId) => {
-    const result = await FirebaseService.getService(serviceId);
-    return result.success ? result.service : null;
+    if (!serviceId) return null;
+    
+    // Check cache first
+    const now = Date.now();
+    if (cache.services.data && cache.services.data[serviceId] && (now - cache.services.timestamp < CACHE_EXPIRY)) {
+      return cache.services.data[serviceId];
+    }
+    
+    try {
+      const result = await FirebaseService.getService(serviceId);
+      if (result.success) {
+        // Initialize cache if needed
+        if (!cache.services.data) cache.services.data = {};
+        
+        // Update cache
+        cache.services.data[serviceId] = result.service;
+        cache.services.timestamp = now;
+        return result.service;
+      }
+      return null;
+    } catch (error) {
+      setError(`Error fetching service: ${error.message}`);
+      return null;
+    }
   };
 
   const getServicesByUserId = async (userId) => {
-    const result = await FirebaseService.getUserServices(userId);
-    return result.success ? result.services : [];
+    if (!userId) return [];
+    
+    // Check cache first
+    const now = Date.now();
+    if (cache.servicesByUser.data[userId] && (now - cache.servicesByUser.timestamp[userId] < CACHE_EXPIRY)) {
+      return cache.servicesByUser.data[userId];
+    }
+    
+    try {
+      const result = await FirebaseService.getUserServices(userId);
+      if (result.success) {
+        // Update cache
+        cache.servicesByUser.data[userId] = result.services;
+        cache.servicesByUser.timestamp[userId] = now;
+        return result.services;
+      }
+      return [];
+    } catch (error) {
+      setError(`Error fetching user services: ${error.message}`);
+      return [];
+    }
   };
 
   const getAvailableServices = async () => {
+    // Check cache first
+    const now = Date.now();
+    if (cache.services.data && (now - cache.services.timestamp < CACHE_EXPIRY)) {
+      // This is for the full services list
+      const servicesList = Object.values(cache.services.data);
+      if (servicesList.length > 0) {
+        return servicesList;
+      }
+    }
+    
     try {
-      // No need to check authentication status here, as we want to allow 
-      // unauthenticated users to view services
       const result = await FirebaseService.getAvailableServices();
-      return result.success ? result.services : [];
-    } catch (error) {
-      console.error("Error getting available services:", error);
-      setError("Failed to load services");
+      if (result.success) {
+        // Create a map of services by ID
+        const servicesMap = {};
+        result.services.forEach(service => {
+          servicesMap[service.id] = service;
+        });
+        
+        // Update cache
+        cache.services.data = servicesMap;
+        cache.services.timestamp = now;
+        return result.services;
+      }
       return [];
+    } catch (error) {
+      setError(`Error fetching available services: ${error.message}`);
+      return [];
+    }
+  };
+
+  // Add a method to invalidate cache when data changes
+  const invalidateCache = (type, id = null) => {
+    if (type === 'services') {
+      if (id) {
+        if (cache.services.data) {
+          delete cache.services.data[id];
+        }
+      } else {
+        cache.services.data = null;
+      }
+    } else if (type === 'users' && id) {
+      delete cache.users.data[id];
+      delete cache.users.timestamp[id];
+    } else if (type === 'servicesByUser' && id) {
+      delete cache.servicesByUser.data[id];
+      delete cache.servicesByUser.timestamp[id];
     }
   };
 
