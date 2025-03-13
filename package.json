@@ -10,7 +10,9 @@
     "ws": "node app/services/websocket.js"
   },
   "dependencies": {
-    "framer-motion": "^12.4.10",
+    "date-fns": "^4.1.0",
+    "firebase": "^11.4.0",
+    "framer-motion": "^12.5.0",
     "next": "15.2.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

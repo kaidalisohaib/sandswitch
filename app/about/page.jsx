@@ -184,18 +184,6 @@ export default function AboutPage() {
 
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                How does the matching system work?
-              </h3>
-              <p className="text-gray-600 dark:text-gray-300">
-                Our system matches users based on the services they offer and
-                request. When someone posts a service, we look for matching
-                requests or offers based on tags and categories. Users can then
-                communicate through their preferred method.
-              </p>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                 Is there a cost to use SandSwitch?
               </h3>
               <p className="text-gray-600 dark:text-gray-300">

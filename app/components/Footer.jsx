@@ -66,14 +66,6 @@ export default function Footer() {
                   Contact Us
                 </Link>
               </li>
-              <li>
-                <a
-                  href="#"
-                  className="text-gray-600 hover:text-indigo-600 dark:text-gray-300 dark:hover:text-indigo-400 transition duration-150"
-                >
-                  Feedback
-                </a>
-              </li>
             </ul>
           </div>
         </div>

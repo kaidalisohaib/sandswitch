@@ -1,78 +1,82 @@
+import { format, formatDistanceToNow } from 'date-fns';
+
 /**
- * Format date to relative time (e.g., "5 minutes ago", "2 days ago")
- * @param {Date} date - The date to format
- * @returns {string} Formatted string representing time distance
+ * Normalizes various timestamp formats to a JavaScript Date object
+ * Handles Firebase Timestamp objects, Date objects, ISO strings, UNIX timestamps, etc.
+ * @param {*} timestamp - The timestamp to normalize
+ * @returns {Date|null} A JavaScript Date object or null if invalid
  */
-export function formatDistanceToNow(date) {
-  const now = new Date();
-  const diffInSeconds = Math.floor((now - date) / 1000);
-
-  // Less than a minute
-  if (diffInSeconds < 60) {
-    return "just now";
+export function normalizeTimestamp(timestamp) {
+  if (!timestamp) return null;
+  
+  try {
+    // Already a Date object
+    if (timestamp instanceof Date) {
+      return timestamp;
+    }
+    
+    // Firebase Timestamp with seconds and nanoseconds
+    if (timestamp.seconds !== undefined) {
+      return new Date(timestamp.seconds * 1000);
+    }
+    
+    // Firebase Timestamp with toDate method
+    if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+      return timestamp.toDate();
+    }
+    
+    // Handle numeric timestamp (milliseconds since epoch)
+    if (typeof timestamp === 'number') {
+      return new Date(timestamp);
+    }
+    
+    // Handle ISO string or other string formats
+    if (typeof timestamp === 'string') {
+      const date = new Date(timestamp);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
+    }
+    
+    console.error('Unrecognized timestamp format:', timestamp);
+    return null;
+  } catch (error) {
+    console.error('Error normalizing timestamp:', error, timestamp);
+    return null;
   }
-
-  // Less than an hour
-  if (diffInSeconds < 3600) {
-    const minutes = Math.floor(diffInSeconds / 60);
-    return `${minutes} minute${minutes > 1 ? "s" : ""} ago`;
-  }
-
-  // Less than a day
-  if (diffInSeconds < 86400) {
-    const hours = Math.floor(diffInSeconds / 3600);
-    return `${hours} hour${hours > 1 ? "s" : ""} ago`;
-  }
-
-  // Less than a week
-  if (diffInSeconds < 604800) {
-    const days = Math.floor(diffInSeconds / 86400);
-    return `${days} day${days > 1 ? "s" : ""} ago`;
-  }
-
-  // Less than a month
-  if (diffInSeconds < 2592000) {
-    const weeks = Math.floor(diffInSeconds / 604800);
-    return `${weeks} week${weeks > 1 ? "s" : ""} ago`;
-  }
-
-  // Less than a year
-  if (diffInSeconds < 31536000) {
-    const months = Math.floor(diffInSeconds / 2592000);
-    return `${months} month${months > 1 ? "s" : ""} ago`;
-  }
-
-  // More than a year
-  const years = Math.floor(diffInSeconds / 31536000);
-  return `${years} year${years > 1 ? "s" : ""} ago`;
 }
 
 /**
- * Format date to localized string
- * @param {Date|string} date - The date to format
- * @returns {string} Formatted date string
+ * Formats a date/timestamp into a string using date-fns format
+ * Handles Firebase timestamps, Date objects, ISO strings, and timestamps in seconds
+ * @param {*} date - The date to format (Firebase Timestamp, Date, ISO string, or seconds)
+ * @param {string} formatStr - The date-fns format string to use (default: 'MMM d, yyyy')
+ * @returns {string} The formatted date string
  */
-export function formatDate(date) {
-  const dateObj = typeof date === "string" ? new Date(date) : date;
-  return dateObj.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
+export const formatDate = (date, formatStr = 'MMM d, yyyy') => {
+  const normalizedDate = normalizeTimestamp(date);
+  if (!normalizedDate) return '';
+  
+  try {
+    return format(normalizedDate, formatStr);
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return 'Invalid date';
+  }
+};
 
-/**
- * Format date and time
- * @param {Date|string} date - The date to format
- * @returns {string} Formatted date and time string
- */
-export function formatDateTime(date) {
-  const dateObj = typeof date === "string" ? new Date(date) : date;
-  return dateObj.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+export function formatTimeAgo(date) {
+  const normalizedDate = normalizeTimestamp(date);
+  
+  if (!normalizedDate) {
+    console.debug('Could not normalize date value:', date);
+    return 'Recently';
+  }
+  
+  try {
+    return formatDistanceToNow(normalizedDate, { addSuffix: true });
+  } catch (error) {
+    console.error('Error formatting time ago:', error, date);
+    return 'Recently';
+  }
+} 

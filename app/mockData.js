@@ -120,17 +120,21 @@ export const services = [
   },
 ];
 
-// Mock matches data
+// Mock matches data with users and services
 export const matches = [
   {
     id: "match1",
     serviceId: "service5",
     requesterId: "user4",
     providerId: "user3",
-    status: "in-progress", // wanted, in-progress, completed, cancelled
+    status: "in-progress",
     created: "2023-11-08T14:25:00Z",
     lastUpdated: "2023-11-09T10:00:00Z",
-    communicationPreference: "in-app", // All communication now via in-app chat
+    communicationPreference: "in-app",
+    requesterStarted: true,
+    providerStarted: true,
+    requesterCompleted: false,
+    providerCompleted: false,
     messages: [
       {
         id: "msg1",
@@ -166,14 +170,19 @@ export const matches = [
     created: "2023-11-09T16:20:00Z",
     lastUpdated: "2023-11-09T16:20:00Z",
     communicationPreference: "in-app", // Changed from "mio" to "in-app"
+    requesterStarted: false,
+    providerStarted: false,
+    requesterCompleted: false,
+    providerCompleted: false,
     messages: [
       {
         id: "msg_initial",
         senderId: "user2",
-        content: "Hello! I could really use your help with my calculus assignment. When would you be available?",
+        content:
+          "Hello! I could really use your help with my calculus assignment. When would you be available?",
         timestamp: "2023-11-09T16:25:00Z",
         read: false,
-      }
+      },
     ],
   },
   {
@@ -185,14 +194,43 @@ export const matches = [
     created: "2023-11-10T09:15:00Z",
     lastUpdated: "2023-11-10T09:15:00Z",
     communicationPreference: "in-app",
+    requesterStarted: false,
+    providerStarted: false,
+    requesterCompleted: false,
+    providerCompleted: false,
     messages: [
       {
         id: "msg_sandwich1",
         senderId: "user4",
-        content: "Hi Jane! I'd love to order one of your sandwiches. Do you have any vegetarian options?",
+        content:
+          "Hi Jane! I'd love to order one of your sandwiches. Do you have any vegetarian options?",
         timestamp: "2023-11-10T09:20:00Z",
         read: false,
-      }
+      },
+    ],
+  },
+  {
+    id: "match7",
+    serviceId: "service1",
+    requesterId: "user2",
+    providerId: "user1",
+    status: "wanted",
+    created: "2024-11-10T09:15:00Z",
+    lastUpdated: "2024-11-10T09:15:00Z",
+    communicationPreference: "in-app",
+    requesterStarted: false,
+    providerStarted: false,
+    requesterCompleted: false,
+    providerCompleted: false,
+    messages: [
+      {
+        id: "msg_sandwich1",
+        senderId: "user2",
+        content:
+          "Hi Soka! I'd love to order one of your sandwiches. Do you have any vegetarian options?",
+        timestamp: "2024-11-10T09:20:00Z",
+        read: false,
+      },
     ],
   },
   {
@@ -204,30 +242,37 @@ export const matches = [
     created: "2023-11-10T19:45:00Z",
     lastUpdated: "2023-11-11T08:30:00Z",
     communicationPreference: "in-app",
+    requesterStarted: true,
+    providerStarted: true,
+    requesterCompleted: false,
+    providerCompleted: true,
     messages: [
       {
         id: "msg_sandwich_req1",
         senderId: "user3",
-        content: "Hey Alex, I can bring you a sandwich tomorrow. Any preferences?",
+        content:
+          "Hey Alex, I can bring you a sandwich tomorrow. Any preferences?",
         timestamp: "2023-11-10T19:50:00Z",
         read: true,
       },
       {
         id: "msg_sandwich_req2",
         senderId: "user2",
-        content: "That would be awesome! I like turkey or chicken if you have it. Thank you!",
+        content:
+          "That would be awesome! I like turkey or chicken if you have it. Thank you!",
         timestamp: "2023-11-10T20:15:00Z",
         read: true,
       },
       {
         id: "msg_sandwich_req3",
         senderId: "user3",
-        content: "No problem! I'll bring a turkey sandwich. See you at the Student Center around noon?",
+        content:
+          "No problem! I'll bring a turkey sandwich. See you at the Student Center around noon?",
         timestamp: "2023-11-11T08:30:00Z",
         read: false,
-      }
+      },
     ],
-  }
+  },
 ];
 
 // Mock categories for services
