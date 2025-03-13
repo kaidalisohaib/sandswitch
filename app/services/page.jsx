@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import ServiceCard from "../components/ServiceCard";
 import FilterBar from "../components/FilterBar";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useFirebase } from "../utils/firebaseContext";
 
-export default function ServicesPage() {
+// Create a separate component that uses useSearchParams
+function ServicesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { 
@@ -228,5 +229,31 @@ export default function ServicesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// Create a loading fallback
+function ServicesLoading() {
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="animate-pulse space-y-8">
+        <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
+        <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="h-72 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Main export wrapped in Suspense
+export default function ServicesPage() {
+  return (
+    <Suspense fallback={<ServicesLoading />}>
+      <ServicesContent />
+    </Suspense>
   );
 }

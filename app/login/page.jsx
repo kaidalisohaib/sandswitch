@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useFirebase } from "../utils/firebaseContext";
 
-export default function LoginPage() {
+// Create a separate component that uses useSearchParams
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/dashboard";
@@ -796,5 +797,31 @@ export default function LoginPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// Create a loading fallback
+function LoginLoading() {
+  return (
+    <div className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-gray-50 dark:bg-gray-900">
+      <div className="animate-pulse mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="h-8 w-1/2 mx-auto bg-gray-200 dark:bg-gray-700 rounded mb-6"></div>
+        <div className="bg-white dark:bg-gray-800 py-8 px-4 shadow sm:rounded-lg sm:px-10">
+          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded mb-4"></div>
+          <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded mb-4"></div>
+          <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded mb-4"></div>
+          <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Main export wrapped in Suspense
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginLoading />}>
+      <LoginContent />
+    </Suspense>
   );
 }

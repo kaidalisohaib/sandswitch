@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import ServiceCard from "../components/ServiceCard";
@@ -11,7 +11,8 @@ import { useFirebase } from "../utils/firebaseContext";
 import { formatDistanceToNow } from "date-fns";
 import { formatTimeAgo, normalizeTimestamp } from "../utils/dateUtils";
 
-export default function DashboardPage() {
+// Create a separate component that uses useSearchParams
+function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab") || "overview";
@@ -848,5 +849,26 @@ export default function DashboardPage() {
       {/* Messages Tab */}
       {activeTab === "messages" && <MessagesTab />}
     </div>
+  );
+}
+
+// Create a loading fallback
+function DashboardLoading() {
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="animate-pulse">
+        <div className="h-8 w-1/4 bg-gray-200 dark:bg-gray-700 rounded mb-6"></div>
+        <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+      </div>
+    </div>
+  );
+}
+
+// Main export wrapped in Suspense
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<DashboardLoading />}>
+      <DashboardContent />
+    </Suspense>
   );
 }
