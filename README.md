@@ -9,8 +9,8 @@ A full-stack web application built with Next.js and Firebase, demonstrating a co
 
 ---
 
-![](./assets/home.png)
-![](./assets/video_web.gif)
+![](https://raw.githubusercontent.com/kaidalisohaib/sandswitch/refs/heads/main/assets/home.png)
+![](https://raw.githubusercontent.com/kaidalisohaib/sandswitch/refs/heads/main/assets/video_web.gif)
 
 ## Table of Contents
 
