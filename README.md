@@ -85,7 +85,7 @@ To get a local copy up and running, follow these simple steps.
 
 1.  **Clone the repository:**
     ```sh
-    git clone https://github.com/[Your-GitHub-Username]/sandswitch.git
+    git clone https://github.com/kaidalisohaib/sandswitch.git
     cd sandswitch
     ```
 2.  **Install dependencies:**
